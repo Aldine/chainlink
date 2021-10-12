@@ -68,6 +68,14 @@ func (cli *Client) RunNode(c *clipkg.Context) error {
 		return cli.errorOut(errors.Wrap(err, "creating application"))
 	}
 
+	// Try to acquire an advisory lock to prevent multiple nodes starting at the same time
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = app.AdvisoryLock(ctx)
+	if err != nil {
+		return cli.errorOut(errors.Wrap(err, "error acquiring lock"))
+	}
+
 	sessionORM := app.SessionORM()
 	keyStore := app.GetKeyStore()
 	err = cli.KeyStoreAuthenticator.authenticate(c, keyStore)

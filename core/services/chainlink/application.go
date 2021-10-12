@@ -90,6 +90,8 @@ type Application interface {
 	RunJobV2(ctx context.Context, jobID int32, meta map[string]interface{}) (int64, error)
 	SetServiceLogLevel(ctx context.Context, service string, level zapcore.Level) error
 
+	AdvisoryLock(context.Context) error
+
 	// Feeds
 	GetFeedsService() feeds.Service
 
@@ -125,6 +127,7 @@ type ChainlinkApplication struct {
 	logger                   logger.Logger
 	sqlxDB                   *sqlx.DB
 	gormDB                   *gorm.DB
+	advisoryLock             postgres.Locker
 
 	started     bool
 	startStopMu sync.Mutex
@@ -328,6 +331,22 @@ func (app *ChainlinkApplication) SetLogLevel(ctx context.Context, lvl zapcore.Le
 	return nil
 }
 
+// Try to immediately acquire an advisory lock. The lock will be released on application stop.
+func (app *ChainlinkApplication) AdvisoryLock(ctx context.Context) error {
+	lockID := int64(1027321974924625846)
+	lock, err := postgres.NewLock(ctx, lockID, app.sqlxDB.DB)
+	if err != nil {
+		app.shutdownSignal.Panic()
+		return err
+	}
+	if err := lock.WaitAndLock(ctx); err != nil {
+		app.shutdownSignal.Panic()
+		return err
+	}
+	app.advisoryLock = &lock
+	return nil
+}
+
 // SetServiceLogLevel sets the Logger level for a given service and stores the setting in the db.
 func (app *ChainlinkApplication) SetServiceLogLevel(ctx context.Context, serviceName string, level zapcore.Level) error {
 	// TODO: Implement other service loggers
@@ -441,6 +460,13 @@ func (app *ChainlinkApplication) stop() (err error) {
 			if app.FeedsService != nil {
 				app.logger.Debug("Closing Feeds Service...")
 				merr = multierr.Append(merr, app.FeedsService.Close())
+			}
+
+			// Clean up the advisory lock if present
+			if app.advisoryLock != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				app.advisoryLock.Unlock(ctx)
 			}
 
 			// DB should pretty much always be closed last
