@@ -38,6 +38,8 @@ import (
 
 	sessions "github.com/smartcontractkit/chainlink/core/sessions"
 
+	time "time"
+
 	types "github.com/smartcontractkit/chainlink/core/chains/evm/types"
 
 	uuid "github.com/satori/go.uuid"
@@ -73,13 +75,13 @@ func (_m *Application) AddJobV2(ctx context.Context, _a1 job.Job, name null.Stri
 	return r0, r1
 }
 
-// AdvisoryLock provides a mock function with given fields: _a0
-func (_m *Application) AdvisoryLock(_a0 context.Context) error {
-	ret := _m.Called(_a0)
+// AdvisoryLock provides a mock function with given fields: ctx, timeout
+func (_m *Application) AdvisoryLock(ctx context.Context, timeout time.Duration) error {
+	ret := _m.Called(ctx, timeout)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(_a0)
+	if rf, ok := ret.Get(0).(func(context.Context, time.Duration) error); ok {
+		r0 = rf(ctx, timeout)
 	} else {
 		r0 = ret.Error(0)
 	}

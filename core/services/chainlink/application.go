@@ -90,7 +90,7 @@ type Application interface {
 	RunJobV2(ctx context.Context, jobID int32, meta map[string]interface{}) (int64, error)
 	SetServiceLogLevel(ctx context.Context, service string, level zapcore.Level) error
 
-	AdvisoryLock(context.Context) error
+	AdvisoryLock(ctx context.Context, timeout time.Duration) error
 
 	// Feeds
 	GetFeedsService() feeds.Service
@@ -331,17 +331,49 @@ func (app *ChainlinkApplication) SetLogLevel(ctx context.Context, lvl zapcore.Le
 	return nil
 }
 
+func logRetry(count int) {
+	if count == 1 {
+		logger.Infow("Could not get lock, retrying...", "failCount", count)
+	} else if count%1000 == 0 || count&(count-1) == 0 {
+		logger.Infow("Still waiting for lock...", "failCount", count)
+	}
+}
+
 // Try to immediately acquire an advisory lock. The lock will be released on application stop.
-func (app *ChainlinkApplication) AdvisoryLock(ctx context.Context) error {
+func (app *ChainlinkApplication) AdvisoryLock(ctx context.Context, timeout time.Duration) error {
 	lockID := int64(1027321974924625846)
-	lock, err := postgres.NewLock(ctx, lockID, app.sqlxDB.DB)
+	lockRetryInterval := time.Second
+
+	initCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	lock, err := postgres.NewLock(initCtx, lockID, app.sqlxDB.DB)
 	if err != nil {
 		app.shutdownSignal.Panic()
 		return err
 	}
-	if err := lock.WaitAndLock(ctx); err != nil {
-		app.shutdownSignal.Panic()
-		return err
+
+	ticker := time.NewTicker(lockRetryInterval)
+	defer ticker.Stop()
+	retryCount := 0
+	for {
+		lockCtx, cancel := context.WithTimeout(ctx, timeout)
+		gotLock, err := lock.Lock(lockCtx)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if gotLock {
+			break
+		}
+
+		select {
+		case <-ticker.C:
+			retryCount++
+			logRetry(retryCount)
+			continue
+		case <-ctx.Done():
+			return errors.Wrap(ctx.Err(), "timeout expired while waiting for lock")
+		}
 	}
 	app.advisoryLock = &lock
 	return nil

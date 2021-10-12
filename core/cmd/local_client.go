@@ -69,9 +69,9 @@ func (cli *Client) RunNode(c *clipkg.Context) error {
 	}
 
 	// Try to acquire an advisory lock to prevent multiple nodes starting at the same time
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err = app.AdvisoryLock(ctx)
+	err = app.AdvisoryLock(ctx, time.Second)
 	if err != nil {
 		return cli.errorOut(errors.Wrap(err, "error acquiring lock"))
 	}
