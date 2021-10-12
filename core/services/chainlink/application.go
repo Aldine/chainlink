@@ -498,7 +498,7 @@ func (app *ChainlinkApplication) stop() (err error) {
 			if app.advisoryLock != nil {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
-				app.advisoryLock.Unlock(ctx)
+				merr = multierr.Append(merr, app.advisoryLock.Unlock(ctx))
 			}
 
 			// DB should pretty much always be closed last
